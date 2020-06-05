@@ -1,0 +1,122 @@
+#pragma once
+#include"stdafx.h"
+
+using namespace std;
+
+//solving deadlock
+struct mapPath
+{
+	double length; //path length
+	double weight;// weight factor
+	string type; //
+	bool block; //Whether the AGV can pass the path
+};
+
+struct AGVtd {//AGV信息表格式
+	string AGVID;//AGV的ID
+	string lastPoint;//上一次经过的点
+	string nextPoint;//下一个要经过的点
+	double xPosition;//MR的x坐标
+	double yPosition;//MR的y坐标
+	int times;//MR在当前位置的反馈次数，用来记录超时，阈值待确定
+	string AGVstatus;//AGV当前状态，working，running，charging，waiting
+};
+
+struct AGVjampath
+{
+	string startPoint;//路径起始点
+	string lockPoint;//路径终点（死锁点）
+	double priority;//优先级
+	double influence;//该路径对其他AGV的影响（即有多少辆AGV需要通过这条路径）
+	vector<AGVtd>AGVpathlist;//在这条路径上的AGV列表
+};
+
+struct AGVtrans {//MR向TC定时发送的位置信息
+	string AGVID;//AGV的ID
+	string lastPoint;//上一次经过的点
+	string nextPoint;//下一个要经过的点
+	float xPosition;//MR的x坐标
+	float yPosition;//MR的y坐标
+	string AGVstatus;//AGV当前状态，working，running，charging，waiting
+};
+
+class deadLock
+{
+public:
+	deadLock() {//构造函数
+
+	}
+		deadLock(string lockPoint1);//构造函数重载，构造时传入一个死锁点
+		deadLock(string lockPoint1,string lockPoint2);//构造函数重载，构造时传入两个死锁点
+		void setLockpoint(string lockPoint1);//设定一个死锁点
+		void setLockpoint(string lockPoint1, string lockPiont2);//重载，设定两个死锁点
+		void setAGVlist(vector<AGVtd> list);//传入AGV列表
+		bool unlock();//解锁
+	
+	private:
+		string deadlockPoint1;//deadlock point
+		string deadlockPoint2;//the second deadlock point
+		vector<AGVtd>AGVList;//AGV列表
+};
+
+
+deadLock::deadLock(string point) {//构造函数重载，构造时传入一个死锁点
+	deadlockPoint1 = point;
+	deadlockPoint2 = "";
+}
+deadLock::deadLock(string point1, string point2) {//构造函数重载，构造时传入两个死锁点
+	deadlockPoint1 = point1;
+	deadlockPoint2 = point2;
+}
+
+
+void deadLock::setLockpoint(string lockPoint1) {//设定一个死锁点
+	deadlockPoint1 = lockPoint1;
+	deadlockPoint2 = "";
+	cout << deadlockPoint1;
+}
+void deadLock::setLockpoint(string lockPoint1, string lockPoint2) {//重载，设定两个死锁点
+	deadlockPoint1 = lockPoint1;
+	deadlockPoint2 = lockPoint2;
+}
+void deadLock::setAGVlist(vector<AGVtd> list) {
+	AGVList = list;
+}
+bool deadLock::unlock() {//解锁
+	vector<AGVjampath>AGVJamlist;
+	if (deadlockPoint2.empty()) {//如果只有一个死锁点
+		int lenth, i;
+		AGVjampath temp;//AGVjampath临时变量，用于新建数组内容
+		for (lenth = AGVList.size(), i = 0; i < lenth; i++) {//遍历list，查找冲突AGV
+			if (AGVList[i].nextPoint==deadlockPoint1) {//检查AGV是否向冲突点运行
+				if (empty(AGVJamlist)) {//检查AGVJamlist是否为空，空的话直接将AGV加入list
+					temp.startPoint = AGVList[i].lastPoint;
+					temp.lockPoint = deadlockPoint1;
+					temp.AGVpathlist.push_back(AGVList[i]);
+				}
+				else//AGVJamlist不为空
+				{
+					bool jampathflag=false;
+					for (vector<AGVjampath>::iterator jampath = AGVJamlist.begin(); jampath != AGVJamlist.end(); jampath++)//使用迭代器遍历AGVJamlist
+					{
+						if (jampath->startPoint == AGVList[i].lastPoint) {//寻找到该AGV所在路径
+							jampath->AGVpathlist.push_back(AGVList[i]);
+							jampathflag = true;
+							break;
+						}
+					}
+					if (!jampathflag) {//若jamlist没有该agv路径
+						temp.startPoint = AGVList[i].lastPoint;
+						temp.lockPoint = deadlockPoint1;
+						temp.AGVpathlist.push_back(AGVList[i]);
+					}
+				}
+			}
+		}
+
+	}
+	else//两个死锁点（相向冲突）
+	{
+
+	}
+}
