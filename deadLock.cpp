@@ -25,7 +25,7 @@ void getmap() {//测试用，获得地图
 	map.push_back(temp);
 	cout << "地图初始化完成\n";
 	for (vector<Map>::iterator point = map.begin(); point != map.end(); point++) {
-		cout << point->pointID<<"->";
+		cout << point->pointID << "->";
 		for (vector<path>::iterator freepath = point->linkPoint.begin(); freepath != point->linkPoint.end(); freepath++) {
 			cout << freepath->endPoint << ", ";
 		}
