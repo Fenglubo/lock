@@ -55,7 +55,7 @@ struct AGVtrans {//MR向TC定时发送的位置信息
 	string AGVstatus;//AGV当前状态，working，running，charging，waiting，error
 	bool back;//AGV是否可以后退
 };
-inline bool compInflu(AGVjampath & path1, AGVjampath & path2)//sort排序用,降序排列
+inline bool compInflu(AGVjampath& path1, AGVjampath& path2)//sort排序用,降序排列
 {
 	return path1.influence > path2.influence;
 }
@@ -68,8 +68,9 @@ public:
 	}
 	deadLock(string lockPoint1);//构造函数重载，构造时传入一个死锁点
 	void setLockpoint(string lockPoint1);//设定一个死锁点
-	void deadLock::setListandmap(vector<AGVtd>& list, vector<Map>& mymap);//传入AGV列表和地图
+	void setListandmap(vector<AGVtd>& list, vector<Map>& mymap);//传入AGV列表和地图
 	void unlock();//解锁
+	void lockmap();//根据死锁点，锁住栅格地图和拓扑图
 
 private:
 	string deadlockPoint1;//deadlock point
@@ -90,9 +91,13 @@ private:
 deadLock::deadLock(string point) {//构造函数重载，构造时传入一个死锁点
 	deadlockPoint1 = point;
 }
+//待完成部分，需要地图格式和位置
+void deadLock::lockmap() {
+
+}
 //待完成部分，需要通信接口
 void pauseAGV(string AGVID) {//暂停AGV
-
+	cout << AGVID << "暂停\n";
 }
 //告知AGV规避点
 void deadLock::sendNewpoint(string AGVID, string freepoint) {
@@ -182,7 +187,7 @@ void deadLock::buildJamlist() {//检查AGVlist，将陷入死锁的AGV加入jaml
 			}
 			//AGV暂停
 			//测试用
-			cout << AGVList[i].AGVID << "暂停\n";
+			pauseAGV(AGVList[i].AGVID);
 		}
 	}
 	//测试用
@@ -206,8 +211,22 @@ bool deadLock::cleanBlock() {//清理block为true的路径
 	{
 		if (jampath->block)//有block为可行的路径
 		{
-			cout << "路径" << jampath->startPoint << "->" << jampath->lockPoint << "所属AGV按原路通行\n";
+			for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV != jampath->AGVpathlist.end(); jamAGV++) {
+				cout << "路径" << jampath->startPoint << "->" << jampath->lockPoint << "所属" << jamAGV->AGVID << "按原路通行\n";
+				//告知AGV前往该路径
+				sendNewpoint(jamAGV->AGVID, jamAGV->nnPoint);
+			}
 			//waiting for reply
+			for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); !empty(jampath->AGVpathlist);)//等待AGV到达避让路径，并更新jampath
+			{
+				//等待AGV回复
+				//jamAGV->nnPoint=
+				cout << jamAGV->AGVID << "到达" << jamAGV->nnPoint << "\n";
+				jamAGV = jampath->AGVpathlist.erase(jamAGV);
+				if (jamAGV == jampath->AGVpathlist.end()) {
+					jamAGV = jampath->AGVpathlist.begin();
+				}
+			}
 			jampath = AGVJamlist.erase(jampath);//删除该路径
 			updateJamlist();//更新jamlist
 			blockflag = false;
@@ -233,6 +252,7 @@ bool deadLock::cleanBlock() {//清理block为true的路径
 	}
 	return true;
 }
+
 
 //寻找空闲路径
 string deadLock::searchFreepath() {
@@ -273,36 +293,26 @@ void deadLock::unlock() {//解锁
 				for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV != jampath->AGVpathlist.end(); jamAGV++) {
 					cout << "路径" << jampath->startPoint << "->" << jampath->lockPoint << "所属" << jamAGV->AGVID << "前往" << freePath << "等待\n";
 					//告知AGV前往该路径
-					sendNewpoint(jamAGV->AGVID,freePath);
+					sendNewpoint(jamAGV->AGVID, freePath);
 				}
 				AGVjampath temp;
 				temp.startPoint = freePath;
 				temp.lockPoint = deadlockPoint1;
-				for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV!= jampath->AGVpathlist.end();jamAGV++ )
+				for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); !empty(jampath->AGVpathlist);)//等待AGV到达避让路径，并更新jampath
 				{
 					//等待AGV回复
 					jamAGV->lastPoint = freePath;
 					jamAGV->nextPoint = deadlockPoint1;
 					//jamAGV->nnPoint=
-					//temp.AGVpathlist.push_back(*jamAGV);
+					temp.AGVpathlist.push_back(*jamAGV);
 					cout << jamAGV->AGVID << "到达" << freePath << "\n";
+					jamAGV = jampath->AGVpathlist.erase(jamAGV);
+					if (jamAGV == jampath->AGVpathlist.end()) {
+						jamAGV = jampath->AGVpathlist.begin();
+					}
 				}
-				AGVJamlist.push_back(temp);
-				//for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); !empty(jampath->AGVpathlist); )
-				//{
-				//	//等待AGV回复
-				//	jamAGV->lastPoint = freePath;
-				//	jamAGV->nextPoint = deadlockPoint1;
-				//	//jamAGV->nnPoint=
-				//	temp.AGVpathlist.push_back(*jamAGV);
-				//	cout << jamAGV->AGVID << "到达" << freePath << "\n";
-				//	jampath->AGVpathlist.erase(jamAGV);
-				//	if (jamAGV == jampath->AGVpathlist.end()) {
-				//		jamAGV = jampath->AGVpathlist.begin();
-				//	}
-				//}
-				//AGVJamlist.push_back(temp);
 				jampath = AGVJamlist.erase(jampath);
+				AGVJamlist.push_back(temp);
 			}
 			else if (jampath->back) {
 				for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV != jampath->AGVpathlist.end(); jamAGV++) {
@@ -317,7 +327,7 @@ void deadLock::unlock() {//解锁
 					//}
 				}
 				jampath = AGVJamlist.erase(jampath);//删除该路径,注意：erase方法会把迭代器指向下一个元素
-				
+
 			}
 			if (jampath == AGVJamlist.end())
 			{
