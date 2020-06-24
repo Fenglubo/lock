@@ -1,0 +1,66 @@
+[
+  {
+    "pointID": "2",
+    "pos_x": 14,
+    "pos_y": 24,
+    "block": true,
+    "linkpoint": [
+      {
+        "linkPointID": "1",
+        "lenth": 18,
+        "factor": 1
+      },
+      {
+        "linkPointID": "3",
+        "lenth": 18,
+        "factor": 1
+      },
+      {
+        "linkPointID": "4",
+        "lenth": 18,
+        "factor": 1
+      },
+      {
+        "linkPointID": "5",
+        "lenth": 18,
+        "factor": 1
+      }
+    ]
+  },
+  {
+    "pointID": "3",
+    "pos_x": 14,
+    "pos_y": 24,
+    "block": true,
+    "linkpoint": [
+      {
+        "linkPointID": "2",
+        "lenth": 18,
+        "factor": 1
+      },
+      {
+        "linkPointID": "6",
+        "lenth": 18,
+        "factor": 1
+      }
+    ]
+  },
+  {
+    "pointID": "1",
+    "pos_x": 14,
+    "pos_y": 24,
+    "block": true,
+    "linkpoint": [
+      {
+        "linkPointID": "2",
+        "lenth": 18,
+        "factor": 1
+      },
+      {
+        "linkPointID": "7",
+        "lenth": 18,
+        "factor": 1
+      }
+    ]
+  }
+]
