@@ -4,27 +4,41 @@
 using namespace std;
 
 vector<AGVtd> AGVList;//创建AGV列表
-vector<Map>map;//建立地图
-vector<Map>backupmap;//备份拓扑图
-void deadlockChange(bool status, string Point);//更改死锁状态并告知MM
+vector<Map>topmap;//建立地图
 AGVtrans getAGVtrans();//测试用
-void resetmap(string point1, string point2);//死锁发生时重设地图
-void resetmap(string point);//重载，只有一个死锁点
 void getmap() {//测试用，获得地图
-	Map temp;
 	path pathtemp;
-	temp.pointID = "2";
-	pathtemp.endPoint = "1";
-	temp.linkPoint.push_back(pathtemp);
-	pathtemp.endPoint = "3";
-	temp.linkPoint.push_back(pathtemp);
-	pathtemp.endPoint = "4";
-	temp.linkPoint.push_back(pathtemp);
-	pathtemp.endPoint = "5";
-	temp.linkPoint.push_back(pathtemp);
-	map.push_back(temp);
+	Json::CharReaderBuilder builder;
+	Json::Value root;//定义根节点
+	Json::CharReader* reader(builder.newCharReader());
+	ifstream ifs(TOPMAP);
+	builder["collectComments"] = false;
+	JSONCPP_STRING errs;
+	if (!ifs.is_open()) {
+		cout << "文件打开失败";
+	}
+	if (parseFromStream(builder, ifs, &root, &errs)) {//开始读文件
+		int size = root.size();
+		for (int i = 0; i < size; i++)
+		{
+			Map temp;
+			temp.pointID = root[i]["pointID"].asString();//保存节点名
+			temp.pos_x = root[i]["pos_x"].asDouble();
+			temp.pos_y = root[i]["pos_y"].asDouble();
+			temp.block = root[i]["block"].asBool();
+			for (int size2 = root[i]["linkpoint"].size(), j = 0; j < size2; j++) {
+				pathtemp.endPoint = root[i]["linkpoint"][j]["linkPointID"].asString();
+				pathtemp.lenth = root[i]["linkpoint"][j]["lenth"].asDouble();
+				pathtemp.factor = root[i]["linkpoint"][j]["factor"].asDouble();
+				temp.linkPoint.push_back(pathtemp);
+			}
+			topmap.push_back(temp);
+		}
+	}
+	ifs.close();
+	//测试用
 	cout << "地图初始化完成\n";
-	for (vector<Map>::iterator point = map.begin(); point != map.end(); point++) {
+	for (vector<Map>::iterator point = topmap.begin(); point != topmap.end(); point++) {
 		cout << point->pointID << "->";
 		for (vector<path>::iterator freepath = point->linkPoint.begin(); freepath != point->linkPoint.end(); freepath++) {
 			cout << freepath->endPoint << ", ";
@@ -34,22 +48,45 @@ void getmap() {//测试用，获得地图
 }
 
 int main() {
-	//测试用，伪造地图
-	getmap();
+	getmap();//加载地图
 	while (1) {//保持运行
 		AGVtrans AGVMessage = getAGVtrans();//收到AGV信息后，开始
 		AGVtd AGVinfo;
 		AGVinfo.AGVID = AGVMessage.AGVID;
 		AGVinfo.lastPoint = AGVMessage.lastPoint;
-		AGVinfo.nextPoint = AGVMessage.nextPoint;
-		AGVinfo.nnPoint = AGVMessage.nnPoint;
 		AGVinfo.times = 0;
+		Json::CharReaderBuilder builder;
+		Json::Value root;//定义根节点
+		Json::CharReader* reader(builder.newCharReader());
+		ifstream ifs(AGVPATH);
+		builder["collectComments"] = false;
+		JSONCPP_STRING errs;
+		bool deadlockflag = false;//死锁标记
+		if (parseFromStream(builder, ifs, &root, &errs)) {
+			root = root[AGVinfo.AGVID];
+			int size = root.size();
+			for (int i = 0; i < size; i++) {
+				if (root[i] == AGVinfo.lastPoint) {
+					if (i + 2 < size) {
+						AGVinfo.nextPoint = root[i + 1].asString();
+						AGVinfo.nnPoint = root[i + 2].asString();
+					}
+					else {
+						deadlockflag = true;
+					}
+					break;
+				}
+			}
+		}
+		ifs.close();
+		if (deadlockflag) {//如果前面出现AGV要到达终点情况，跳过后续部分
+			continue;
+		}
 		if (empty(AGVList)) {//判断AGV列表是否为空，如果为空直接将AGV信息存入
 			AGVList.push_back(AGVinfo);
 			continue;
 		}
 		bool flag = false;//AGVList是否有该AGV的记录
-		bool deadlockflag = false;//死锁标记
 		//故障死锁部分
 		if (AGVinfo.AGVstatus == "error") {
 			//向MM报错，重新分配任务
@@ -71,7 +108,7 @@ int main() {
 						cout << "Time out:" << AGVList[i].AGVID << ',' << AGVList[i].times << "\n";
 						deadLock myunlock;
 						myunlock.setLockpoint(AGVinfo.nextPoint);//设置死锁点
-						myunlock.setListandmap(AGVList, map);//传入AGV列表
+						myunlock.setListandmap(AGVList, topmap);//传入AGV列表
 						deadlockflag = true;
 						continue;
 					}
@@ -94,18 +131,18 @@ int main() {
 		//路径占用死锁判定部分
 		for (lenth = AGVList.size(), i = 0; i < lenth; i++) {//遍历list，查找是否有冲突AGV
 			//if (AGVList[i].lastPoint == AGVinfo.nextPoint&&AGVList[i].nextPoint == AGVinfo.lastPoint) {//检查AGV是否相向运行，这种情况应该不会出现
-			//	//deadlockChange(true, AGVinfo.lastPoint, AGVinfo.nextPoint);
-			//	//调用deadlock类
-			//	deadlockflag = true;
-			//	continue;
-			//}
+				//	//deadlockChange(true, AGVinfo.lastPoint, AGVinfo.nextPoint);
+				//	//调用deadlock类
+				//	deadlockflag = true;
+				//	continue;
+				//}
 			if (AGVList[i].nextPoint == AGVinfo.nextPoint) {//检查AGV是否向同一个节点运行
 				//检查下一节点是否重复
 				if (AGVList[i].lastPoint == AGVinfo.nnPoint || AGVList[i].nnPoint == AGVinfo.lastPoint) {
 					//测试用
 					cout << "死锁点：" << AGVList[i].nextPoint << "\n";
 					deadLock myunlock;//调用deadlock类
-					myunlock.setListandmap(AGVList, map);;
+					myunlock.setListandmap(AGVList, topmap);;
 					myunlock.setLockpoint(AGVList[i].nextPoint);
 					myunlock.unlock();
 					deadlockflag = true;
@@ -120,23 +157,9 @@ int main() {
 
 }
 
-void resetMap(string point1, string point2) {//重写地图
-	//删路
-}
-
-void resetMap(string point) {//重写地图
-	//删死锁点连通过的路径
-}
-
-void resetTask(bool status, string Point) {//更改死锁状态并告知MM
-
-}
 AGVtrans getAGVtrans() {
 	AGVtrans AGVinfo;
-	//AGVinfo.AGVID = "agv133";
-	//AGVinfo.lastPoint = "11";
-	//AGVinfo.nextPoint = "25";
 	cout << "请输入AGV信息：";
-	cin >> AGVinfo.AGVID >> AGVinfo.lastPoint >> AGVinfo.nextPoint >> AGVinfo.nnPoint;
+	cin >> AGVinfo.AGVID >> AGVinfo.lastPoint;
 	return AGVinfo;
 }
