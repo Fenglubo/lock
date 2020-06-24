@@ -4,7 +4,10 @@
 using namespace std;
 
 #define TIMETD  10//超时阈值，需要讨论
-
+#define TOPMAP "./data/mapspec.json"//拓扑图路径
+#define RASTERMAP "./data/Rastermap.json"//栅格图路径
+#define AGVPATH "./data/agvpath.json"//AGV路径文件
+#define RADIUS 1//锁区半径
 //solving deadlock
 
 struct path {
@@ -71,7 +74,7 @@ public:
 	void setListandmap(vector<AGVtd>& list, vector<Map>& mymap);//传入AGV列表和地图
 	void unlock();//解锁
 	void lockmap();//根据死锁点，锁住栅格地图和拓扑图
-
+	void unlockmap();//解锁地图
 private:
 	string deadlockPoint1;//deadlock point
 	vector<AGVtd>AGVList;//AGV列表
@@ -83,25 +86,121 @@ private:
 	bool cleanBlock();//清理block为true的路径
 	string searchFreepoint();//查找最近的空闲点
 	void pauseAGV(string AGVID);//暂停AGV
-	void sendNewpoint(string AGVID, string freepoint);//告知AGV规避点
+	void sendNewpath(string AGVID, string nextpoint);//AGV按原路运行
+	void sendNewpath(string AGVID, string nextpoint,string freepoint);//重载，告知规避点
 	string searchFreepath();//寻找空闲路径
+	void sendAGVpath(Json::Value root);//向AGV发送路径指令
 };
 
 
 deadLock::deadLock(string point) {//构造函数重载，构造时传入一个死锁点
 	deadlockPoint1 = point;
 }
-//待完成部分，需要地图格式和位置
+//锁住地图
 void deadLock::lockmap() {
-
+	Json::CharReaderBuilder builder;
+	Json::Value root;//定义根节点
+	Json::CharReader* reader(builder.newCharReader());
+	ifstream ifs(TOPMAP);
+	builder["collectComments"] = false;
+	JSONCPP_STRING errs;
+	double pos_x, pos_y;
+	if (parseFromStream(builder, ifs, &root, &errs)) {//读取拓扑图，查找死锁点坐标
+		for (int i = 0, size = root.size(); i < size; i++) {
+			if (root[i]["pointID"].asString() == deadlockPoint1) {
+				pos_x = root[i]["pos_x"].asDouble();
+				pos_y = root[i]["pos_y"].asDouble();
+				break;
+			}
+		}
+	}
+	ifs.close();
+	ifs.open(RASTERMAP);
+	ofstream ofs;
+	if (parseFromStream(builder, ifs, &root, &errs)) {
+		Json::Value district,temp;
+		Json::StreamWriterBuilder sw;
+		temp.append(pos_x - RADIUS);
+		temp.append(pos_y - RADIUS);
+		district.append(temp);
+		temp.clear();
+		temp.append(pos_x - RADIUS);
+		temp.append(pos_y + RADIUS);
+		district.append(temp);
+		temp.clear();
+		temp.append(pos_x + RADIUS);
+		temp.append(pos_y - RADIUS);
+		district.append(temp);
+		temp.clear();
+		temp.append(pos_x + RADIUS);
+		temp.append(pos_y + RADIUS);
+		district.append(temp);
+		root["obstacle"][deadlockPoint1]=district;
+		ifs.close();
+		sw.settings_["precision"] = 5;
+		ofs.open(RASTERMAP);
+		std::unique_ptr<Json::StreamWriter> writer(sw.newStreamWriter());
+		writer->write(root, &ofs);
+		ofs.close();
+		cout << "节点" << deadlockPoint1 << "已加锁\n";
+	}
+}
+//解锁地图
+void deadLock::unlockmap() {
+	Json::CharReaderBuilder builder;
+	Json::Value root;//定义根节点
+	Json::CharReader* reader(builder.newCharReader());
+	ifstream ifs(RASTERMAP);
+	builder["collectComments"] = false;
+	JSONCPP_STRING errs;
+	if (parseFromStream(builder, ifs, &root, &errs)) {
+		ifs.close();
+		root["obstacle"].removeMember(deadlockPoint1);
+		ofstream ofs(RASTERMAP);
+		Json::StreamWriterBuilder sw;
+		sw.settings_["precision"] = 5;
+		std::unique_ptr<Json::StreamWriter> writer(sw.newStreamWriter());
+		writer->write(root, &ofs);
+		ofs.close();
+		cout << "节点" << deadlockPoint1 << "已解锁\n";
+	}
 }
 //待完成部分，需要通信接口
-void pauseAGV(string AGVID) {//暂停AGV
+void deadLock::pauseAGV(string AGVID) {//暂停AGV
 	cout << AGVID << "暂停\n";
 }
+//待完成部分，需要通信接口
+void deadLock::sendAGVpath(Json::Value root) {//向AGV发送路径指令
+	
+}
 //告知AGV规避点
-void deadLock::sendNewpoint(string AGVID, string freepoint) {
-
+void deadLock::sendNewpath(string AGVID,string nextpoint,string freepoint) {
+	Json::Value root;
+	root.append(nextpoint);
+	root.append(freepoint);
+	sendAGVpath(root);
+}
+//告知AGV按原路径运行
+void deadLock::sendNewpath(string AGVID, string nextpoint) {
+	Json::CharReaderBuilder builder;
+	Json::Value root;//定义根节点
+	Json::CharReader* reader(builder.newCharReader());
+	ifstream ifs(AGVPATH);
+	builder["collectComments"] = false;
+	JSONCPP_STRING errs;
+	if (parseFromStream(builder, ifs, &root, &errs)) {
+		root = root[AGVID];
+		for (int size = root.size(), i = 0; i < size;) {
+			if (root[i] == nextpoint) {
+				sendAGVpath(root);
+				return;
+			}
+			else {
+				root.removeIndex[i];
+			}
+		}
+	}
+	ifs.close();
 }
 
 void deadLock::newAGVPath(vector<AGVjampath>& list, AGVtd AGVinfo) {//将AGV加入jamlistpath
@@ -152,7 +251,7 @@ void deadLock::updateJamlist() {//更新jamlist中的influence和block
 		}
 	}
 	sort(AGVJamlist.begin(), AGVJamlist.end(), compInflu);//按influence排序
-	//测试用
+														  //测试用
 	cout << "Jamlist更新：\n";
 	for (vector<AGVjampath>::iterator jampath = AGVJamlist.begin(); jampath != AGVJamlist.end(); jampath++) {
 		cout << "JamPath:" << jampath->startPoint << "->" << jampath->lockPoint << ": influence--" << jampath->influence << "  , block" << jampath->block << "\n";
@@ -161,7 +260,7 @@ void deadLock::updateJamlist() {//更新jamlist中的influence和block
 }
 
 void deadLock::buildJamlist() {//检查AGVlist，将陷入死锁的AGV加入jamlist
-	//确定陷入死锁的AGV
+							   //确定陷入死锁的AGV
 	int lenth, i;
 	for (lenth = AGVList.size(), i = 0; i < lenth; i++) {//遍历list，查找冲突AGV
 		if (AGVList[i].nextPoint == deadlockPoint1) {//检查AGV是否向冲突点运行
@@ -174,7 +273,7 @@ void deadLock::buildJamlist() {//检查AGVlist，将陷入死锁的AGV加入jaml
 				for (vector<AGVjampath>::iterator jampath = AGVJamlist.begin(); jampath != AGVJamlist.end(); jampath++)//使用迭代器遍历AGVJamlist
 				{
 					if (jampath->startPoint == AGVList[i].lastPoint) {//寻找到该AGV所在路径
-						//将AGV加入该路径
+																	  //将AGV加入该路径
 						jampath->AGVpathlist.push_back(AGVList[i]);
 						jampath->back = jampath->back ? AGVList[i].back : false;//如果路径的back属性为真，将agv的back属性赋给路径
 						jampathflag = true;
@@ -187,7 +286,7 @@ void deadLock::buildJamlist() {//检查AGVlist，将陷入死锁的AGV加入jaml
 			}
 			//AGV暂停
 			//测试用
-			pauseAGV(AGVList[i].AGVID);
+			pauseAGV(AGVList[i].AGVID);//暂停AGV
 		}
 	}
 	//测试用
@@ -214,7 +313,7 @@ bool deadLock::cleanBlock() {//清理block为true的路径
 			for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV != jampath->AGVpathlist.end(); jamAGV++) {
 				cout << "路径" << jampath->startPoint << "->" << jampath->lockPoint << "所属" << jamAGV->AGVID << "按原路通行\n";
 				//告知AGV前往该路径
-				sendNewpoint(jamAGV->AGVID, jamAGV->nnPoint);
+				sendNewpath(jamAGV->AGVID, jamAGV->nextPoint);
 			}
 			//waiting for reply
 			for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); !empty(jampath->AGVpathlist);)//等待AGV到达避让路径，并更新jampath
@@ -273,14 +372,17 @@ string deadLock::searchFreepath() {
 			return "false";
 		}
 	}
+	return "false";
 }
 
 void deadLock::unlock() {//解锁
 	buildJamlist();//建立AGV冲突表
-	//开始解锁
+	lockmap();//改写地图
+				   //开始解锁
 	if (cleanBlock()) {
 		//测试用
 		cout << "自解锁完成\n";
+		unlockmap();
 		return;
 	}
 	else {//如果清理过后，jamlist仍有内容，说明有MR互不相让，需要规划新路径，执行后退
@@ -288,12 +390,11 @@ void deadLock::unlock() {//解锁
 		for (vector<AGVjampath>::iterator jampath = AGVJamlist.begin(); !empty(AGVJamlist);)
 		{
 			string freePath = searchFreepath();//寻找可进行避让的空闲路径
-			cout << freePath << "\n";
 			if (freePath != "false") {
 				for (vector<AGVtd>::iterator jamAGV = jampath->AGVpathlist.begin(); jamAGV != jampath->AGVpathlist.end(); jamAGV++) {
 					cout << "路径" << jampath->startPoint << "->" << jampath->lockPoint << "所属" << jamAGV->AGVID << "前往" << freePath << "等待\n";
 					//告知AGV前往该路径
-					sendNewpoint(jamAGV->AGVID, freePath);
+					sendNewpath(jamAGV->AGVID,jamAGV->nextPoint, freePath);
 				}
 				AGVjampath temp;
 				temp.startPoint = freePath;
@@ -334,6 +435,7 @@ void deadLock::unlock() {//解锁
 				jampath = AGVJamlist.begin();
 			}
 			if (cleanBlock()) {
+				unlockmap();
 				return;
 			}
 		}
